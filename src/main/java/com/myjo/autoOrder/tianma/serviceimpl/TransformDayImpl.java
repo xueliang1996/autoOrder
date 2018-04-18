@@ -15,6 +15,8 @@ import com.myjo.autoOrder.tianma.service.TransformDay;
 public class TransformDayImpl implements TransformDay {
 	@Value("${time}")
 	private long time;
+	@Value("${ReplacementOrder.intervalDay}")
+	private int intervalDay;
 
 	/**
 	 * 判断当前日期是星期几<br>
@@ -85,6 +87,23 @@ public class TransformDayImpl implements TransformDay {
 		return false;
 	}
 
+	@Override
+	public boolean getMillisecond(String time1) {
+		long times;
+		long time2 = System.currentTimeMillis();
+		long time = 86400000;// 24小时
+		try {
+			times = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(time1).getTime();
+			if (time2 - times < time) {
+				return true;
+			}
+		} catch (ParseException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return false;
+	}
+
 	/*
 	 * 
 	 * 获取当前日期
@@ -96,5 +115,29 @@ public class TransformDayImpl implements TransformDay {
 		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 		String rt = sdf.format(date);
 		return rt;
+	}
+
+	// 获取当前时间的前一天
+	@Override
+	public String getBeforeCurrentDay() {
+		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+		int time = 1 - intervalDay;
+		Date date = new Date();
+		Calendar calendar = Calendar.getInstance();
+		calendar.setTime(date);
+		calendar.add(Calendar.DAY_OF_MONTH, time);
+		date = calendar.getTime();
+		return sdf.format(date);
+	}
+
+	@Override
+	public String getBeforeCurrentMonth() {
+		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+		Date date = new Date();
+		Calendar calendar = Calendar.getInstance();
+		calendar.setTime(date);
+		calendar.add(Calendar.MONTH, -1);
+		date = calendar.getTime();
+		return sdf.format(date);
 	}
 }

@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.mashape.unirest.http.HttpResponse;
 import com.mashape.unirest.http.JsonNode;
@@ -38,6 +39,23 @@ public class TianmaHttp {
 	private final String xRequestedWith = "XMLHttpRequest";
 	private final String contentType = "application/x-www-form-urlencoded; charset=UTF-8";
 	private final String acceptEncoding = "gzip, deflate, sdch";
+
+	public String writeImgAndgetCookie() {
+		String url = "http://" + tianmaUrl + "/ms/ImageServlet?time=new%20Date().getTime()";
+		String cookie = null;
+		try {
+			HttpResponse<String> response = Unirest.get(url).header("Host", tianmaUrl).header("Connection", connection)
+					.header("Accept", accept).header("Accept-Language", acceptLanguage)
+					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
+					.header("User-Agent", userAgent).header("Content-Type", contentType)
+					.header("Accept-Encoding", acceptEncoding).asString();
+			response.getHeaders();
+		} catch (UnirestException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return cookie;
+	}
 
 	// Request URL:http://www.tianmasport.com/ms/order/searchByArticleno.do
 	public Map<String, String> getSearchByArticleno(String articleno) {
@@ -129,22 +147,20 @@ public class TianmaHttp {
 	}
 
 	// 获取快递信息
-	public com.alibaba.fastjson.JSONObject getPostage(String wareHouseName, String province, String weight,
-			double first_w) {
-		double totalWeight = Double.parseDouble(weight);
+	public String getPostage(String wareHouseName, String province, String weight, String first_w) {
+		String totalWeight = weight;
 		CookieUtil cookieUtil = new CookieUtil();
 		String[] cookie = cookieUtil.getCookie();
 		String url1 = "http://" + tianmaUrl + "/ms/order/getPostage.do";
 		String url2 = "http://" + tianmaUrl + "/ms/order/defaultPostage.do";
-		HttpResponse<String> response = null;
 		try {
-			response = Unirest.post(url1).header("Cookie", cookie[0] + "=" + cookie[1]).header("Host", tianmaUrl)
-					.header("Connection", connection).header("Accept", accept).header("Accept-Language", acceptLanguage)
-					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
-					.header("User-Agent", userAgent).header("Content-Type", contentType)
-					.header("Accept-Encoding", acceptEncoding).field("wareHouseName", wareHouseName)
-					.field("province", province).field("weight", weight).field("first_w", first_w)
-					.field("totalWeight", totalWeight).asString();
+			HttpResponse<String> response = Unirest.post(url1).header("Cookie", cookie[0] + "=" + cookie[1])
+					.header("Host", tianmaUrl).header("Connection", connection).header("Accept", accept)
+					.header("Accept-Language", acceptLanguage).header("Origin", "http://" + tianmaUrl)
+					.header("X-Requested-With", xRequestedWith).header("User-Agent", userAgent)
+					.header("Content-Type", contentType).header("Accept-Encoding", acceptEncoding)
+					.field("wareHouseName", wareHouseName).field("province", province).field("weight", weight)
+					.field("first_w", first_w).field("totalWeight", totalWeight).asString();
 			String express = response.getBody();
 			JSONArray expressJsonA = JSONArray.parseArray(express);
 			for (int i = 0; i < expressJsonA.size(); i++) {
@@ -152,23 +168,21 @@ public class TianmaHttp {
 						&& Double.parseDouble(expressJsonA.getJSONObject(i).getString("expressName").substring(
 								expressJsonA.getJSONObject(i).getString("expressName").indexOf("(") + 1, expressJsonA
 										.getJSONObject(i).getString("expressName").indexOf(")"))) <= sf_express_price) {
-					return expressJsonA.getJSONObject(i);
-				} else {
-					response = Unirest.post(url2).header("Cookie", cookie[0] + "=" + cookie[1])
-							.header("Host", tianmaUrl).header("Connection", connection).header("Accept", accept)
-							.header("Accept-Language", acceptLanguage).header("Origin", "http://" + tianmaUrl)
-							.header("X-Requested-With", xRequestedWith).header("User-Agent", userAgent)
-							.header("Content-Type", contentType).header("Accept-Encoding", acceptEncoding)
-							.field("wareHouseName", wareHouseName).field("province", province).field("weight", weight)
-							.field("first_w", first_w).asString();
-					express = response.getBody();
-					com.alibaba.fastjson.JSONObject expressJson = com.alibaba.fastjson.JSONObject.parseObject(express);
-					return expressJson;
+					return expressJsonA.getJSONObject(i).getString("expressName");
 				}
 			}
+			response = Unirest.post(url2).header("Cookie", cookie[0] + "=" + cookie[1]).header("Host", tianmaUrl)
+					.header("Connection", connection).header("Accept", accept).header("Accept-Language", acceptLanguage)
+					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
+					.header("User-Agent", userAgent).header("Content-Type", contentType)
+					.header("Accept-Encoding", acceptEncoding).field("wareHouseName", wareHouseName)
+					.field("province", province).field("weight", weight).field("first_w", first_w).asString();
+			express = response.getBody();
+			com.alibaba.fastjson.JSONObject expressJson = com.alibaba.fastjson.JSONObject.parseObject(express);
+			return expressJson.getString("msg");
 
 		} catch (Exception e) {
-
+			e.printStackTrace();
 		}
 		return null;
 	}
@@ -216,8 +230,10 @@ public class TianmaHttp {
 	}
 
 	// 获取下单所需的字段
-	public long myDataList(long tid) {
+	public Map<String, Long> myDataList(long tid, int status) {
+		Map<String, Long> map = new HashMap<String, Long>();
 		String outer_id = String.valueOf(tid);
+		long order_id = 0;
 		CookieUtil cookieUtil = new CookieUtil();
 		String[] cookie = cookieUtil.getCookie();
 		String url = "http://" + tianmaUrl + "/ms/tradeOrders/myDataList.do";
@@ -229,8 +245,8 @@ public class TianmaHttp {
 					.header("Connection", connection).header("Accept", accept).header("Accept-Language", acceptLanguage)
 					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
 					.header("User-Agent", userAgent).header("Content-Type", contentType)
-					.header("Accept-Encoding", acceptEncoding).field("page", 1).field("rows", 15).field("status", 0)
-					.field("m_warehouse_name", "").field("goods_no", "").field("names", "")
+					.header("Accept-Encoding", acceptEncoding).field("page", 1).field("rows", 300)
+					.field("status", status).field("m_warehouse_name", "").field("goods_no", "").field("names", "")
 					.field("startTime", currentTime).field("endsTime", "").field("size", "").field("outer_tid", "")
 					.field("order_id", "").asString();
 
@@ -241,26 +257,30 @@ public class TianmaHttp {
 				for (int i = 0; i < jsonA.length(); i++) {
 					if (outer_id.equals(jsonA.getJSONObject(i).getString("outer_order_id"))) {
 						tid = jsonA.getJSONObject(i).getLong("tid");
+						order_id = jsonA.getJSONObject(i).getLong("order_id");
+						map.put("orderIDs", tid);
+						map.put("order_id", order_id);
+						break;
 					}
 				}
 			} else {
 				LOGGER.info("updataBalance:" + code);
-				return 0;
+				return null;
 			}
 		} catch (UnirestException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		return tid;
+		return map;
 	}
 
 	// 下单
-	public boolean updataBalance(long orderId, String payPwd) {
+	public String updataBalance(long orderId, String payPwd) {
 		CookieUtil cookieUtil = new CookieUtil();
 		String[] cookie = cookieUtil.getCookie();
-		LOGGER.info(String.format("http tm-sport updataBalance:orderId:%s,payPwd:********,", orderId));
+		LOGGER.info(String.format("updataBalance:orderId:%s,payPwd:********,", orderId));
 		String url = "http://" + tianmaUrl + "/ms/tradeInfo/updataBalance.do";
-		boolean rt = false;
+		String rt = null;
 		HttpResponse<JsonNode> response;
 		try {
 			response = Unirest.post(url).header("Cookie", cookie[0] + "=" + cookie[1]).header("Host", tianmaUrl)
@@ -274,7 +294,7 @@ public class TianmaHttp {
 			if (code == 200) {
 				JSONObject object = response.getBody().getObject();
 
-				rt = object.getBoolean("success");
+				rt = object.getString("msg");
 				LOGGER.info(String.valueOf(rt));
 
 			} else {
@@ -283,8 +303,87 @@ public class TianmaHttp {
 		} catch (UnirestException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-			return false;
 		}
 		return rt;
+	}
+
+	public String delete(long order_id) {
+		CookieUtil cookieUtil = new CookieUtil();
+		String[] cookie = cookieUtil.getCookie();
+		String url = "http://" + tianmaUrl + "/ms/tradeOrders/delete.do";
+		String msg = null;
+		HttpResponse<JsonNode> response;
+		try {
+			response = Unirest.post(url).header("Cookie", cookie[0] + "=" + cookie[1]).header("Host", tianmaUrl)
+					.header("Connection", connection).header("Accept", accept).header("Accept-Language", acceptLanguage)
+					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
+					.header("User-Agent", userAgent).header("Content-Type", contentType)
+					.header("Accept-Encoding", acceptEncoding).field("id", order_id).asJson();
+			JSONObject object = response.getBody().getObject();
+			msg = object.getString("msg");
+		} catch (UnirestException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return msg;
+	}
+
+	// 获取当前时间前一天到现在的已退款订单
+	public List<com.alibaba.fastjson.JSONObject> myRefundDataList(int status) {
+		CookieUtil cookieUtil = new CookieUtil();
+		String[] cookie = cookieUtil.getCookie();
+		List<com.alibaba.fastjson.JSONObject> jsonList = new ArrayList<com.alibaba.fastjson.JSONObject>();
+		String url = "http://" + tianmaUrl + "/ms/tradeOrders/myDataList.do";
+		String time = transformDayImpl.getBeforeCurrentDay();
+		HttpResponse<String> response;
+		try {
+			response = Unirest.post(url).header("Cookie", cookie[0] + "=" + cookie[1]).header("Host", tianmaUrl)
+					.header("Connection", connection).header("Accept", accept).header("Accept-Language", acceptLanguage)
+					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
+					.header("User-Agent", userAgent).header("Content-Type", contentType)
+					.header("Accept-Encoding", acceptEncoding).field("page", 1).field("rows", 300)
+					.field("status", status).field("m_warehouse_name", "").field("goods_no", "").field("names", "")
+					.field("startTime", time).field("endsTime", "").field("size", "").field("outer_tid", "")
+					.field("order_id", "").asString();
+			com.alibaba.fastjson.JSONObject jsonObject = JSON.parseObject(response.getBody());
+			JSONArray jsonArray = jsonObject.getJSONArray("rows");
+			for (int i = 0; i < jsonArray.size(); i++) {
+				jsonList.add(jsonArray.getJSONObject(i));
+			}
+			return jsonList;
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return jsonList;
+	}
+
+	// 获取当前时间前一天到现在的已退款订单
+	public boolean myRefundDataList(String outer_tid) {
+		CookieUtil cookieUtil = new CookieUtil();
+		String[] cookie = cookieUtil.getCookie();
+		String url = "http://" + tianmaUrl + "/ms/tradeOrders/myDataList.do";
+		String time = transformDayImpl.getBeforeCurrentMonth();
+		HttpResponse<String> response;
+		try {
+			response = Unirest.post(url).header("Cookie", cookie[0] + "=" + cookie[1]).header("Host", tianmaUrl)
+					.header("Connection", connection).header("Accept", accept).header("Accept-Language", acceptLanguage)
+					.header("Origin", "http://" + tianmaUrl).header("X-Requested-With", xRequestedWith)
+					.header("User-Agent", userAgent).header("Content-Type", contentType)
+					.header("Accept-Encoding", acceptEncoding).field("page", 1).field("rows", 300).field("status", "")
+					.field("m_warehouse_name", "").field("goods_no", "").field("names", "").field("startTime", time)
+					.field("endsTime", "").field("size", "").field("outer_tid", outer_tid).field("order_id", "")
+					.field("check_findStatus", 0).field("size1", "").field("p_delivery_no", "")
+					.field("startFeedBackTime", "").field("endsFeedBackTime", "").field("names", "").asString();
+			com.alibaba.fastjson.JSONObject jsonObject = JSON.parseObject(response.getBody());
+			JSONArray jsonArray = jsonObject.getJSONArray("rows");
+			if (jsonArray.size() > 1) {
+				return false;
+			}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return true;
 	}
 }

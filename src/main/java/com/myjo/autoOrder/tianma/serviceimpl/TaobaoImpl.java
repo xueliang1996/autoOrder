@@ -17,9 +17,11 @@ import com.taobao.api.domain.Trade;
 import com.taobao.api.request.TradeFullinfoGetRequest;
 import com.taobao.api.request.TradeGetRequest;
 import com.taobao.api.request.TradeMemoAddRequest;
+import com.taobao.api.request.TradeMemoUpdateRequest;
 import com.taobao.api.response.TradeFullinfoGetResponse;
 import com.taobao.api.response.TradeGetResponse;
 import com.taobao.api.response.TradeMemoAddResponse;
+import com.taobao.api.response.TradeMemoUpdateResponse;
 
 @Service
 public class TaobaoImpl implements TaobaoService {
@@ -38,7 +40,6 @@ public class TaobaoImpl implements TaobaoService {
 			req.setMemo(memo);
 			req.setFlag(flag);
 			TradeMemoAddResponse rsp;
-
 			rsp = client.execute(req, taobaoAPI.getSessionKey());
 			JSONObject json = new JSONObject(rsp.getBody());
 			return json;
@@ -56,7 +57,7 @@ public class TaobaoImpl implements TaobaoService {
 		TradeGetRequest req = new TradeGetRequest();
 
 		req.setFields(
-				"tid,title,buyer_nick,type,status,num,payment,orders,created,pay_time,price,discount_fee,total_fee,is_daixiao");
+				"tid,title,buyer_nick,type,status,seller_memo,num,payment,orders,created,pay_time,price,discount_fee,total_fee,is_daixiao");
 		req.setTid(tid);
 		try {
 			TradeGetResponse rsp = client.execute(req, taobaoAPI.getSessionKey());
@@ -89,7 +90,7 @@ public class TaobaoImpl implements TaobaoService {
 				taobaoAPI.getSecret());
 		TradeFullinfoGetRequest req = new TradeFullinfoGetRequest();
 		req.setFields(
-				"tid,type,created,seller_memo,buyer_nick,seller_flag,status,num,payment,orders,receiver_name,receiver_state,receiver_address,receiver_zip,receiver_mobile,receiver_phone,received_payment,receiver_city,receiver_district,buyer_message,is_daixiao,orders.refund_id");
+				"tid,type,created,seller_memo,buyer_nick,pay_time,seller_flag,status,num,payment,orders,receiver_name,receiver_state,receiver_address,receiver_zip,receiver_mobile,receiver_phone,received_payment,receiver_city,receiver_district,buyer_message,is_daixiao,orders.refund_id");
 		req.setTid(tid);
 		try {
 			TradeFullinfoGetResponse rsp = client.execute(req, taobaoAPI.getSessionKey());
@@ -103,9 +104,24 @@ public class TaobaoImpl implements TaobaoService {
 	}
 
 	@Override
-	public void updateTradeMemo(long tid, long flag, String memo) {
+	public JSONObject updateTradeMemo(long tid, long flag, String memo) {
 		// TODO Auto-generated method stub
-
+		TaobaoClient client = new DefaultTaobaoClient(taobaoAPI.getTaobaoUrl(), taobaoAPI.getAppkey(),
+				taobaoAPI.getSecret());
+		TradeMemoUpdateRequest req = new TradeMemoUpdateRequest();
+		try {
+			req.setTid(tid);
+			req.setMemo(memo);
+			req.setFlag(flag);
+			req.setReset(false);
+			TradeMemoUpdateResponse rsp;
+			rsp = client.execute(req, taobaoAPI.getSessionKey());
+			JSONObject json = new JSONObject(rsp.getBody());
+			return json;
+		} catch (ApiException e) {
+			LOGGER.info("修改备注及标旗失败");
+			return null;
+		}
 	}
 
 }

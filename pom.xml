@@ -77,11 +77,11 @@
           <scope>system</scope>
           <systemPath>F:/MyEclipse-workspace/autoOrder/lib/taobao-sdk-java-auto_1503566506246-20180411-source.jar</systemPath>
        </dependency>
-       <dependency>
-			<groupId>net.sourceforge.javacsv</groupId>
-			<artifactId>javacsv</artifactId>
-			<version>2.0</version>
-		</dependency>
+       <dependency>  
+        <groupId>org.ostermiller</groupId>  
+        <artifactId>utils</artifactId>  
+        <version>1.07.00</version>  
+       </dependency>  
 	</dependencies>
 
 	<build>

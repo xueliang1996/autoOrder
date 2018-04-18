@@ -58,6 +58,10 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 	// A/B分流，默认设置为B,A=true,B=false
 	@Value("${orderSelect}")
 	private boolean orderSelect;
+	@Value("${ReplacementOrder.postage}")
+	private int replacementPostage;
+	@Value("${ReplacementOrder.percent}")
+	private double replacementPercent;
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(SearchByArticlenoImpl.class);
 
@@ -70,7 +74,7 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 	 * 
 	 */
 	@Override
-	public List<JsonStr> priceFilter(long tid, String articleno, double price) {
+	public List<JsonStr> priceFilter(long tid, String articleno, double price, boolean isSecond) {
 		String[] articlenoPostfixs = articlenoPostfix.split(",");
 		if (articlenoPostfixs.length != 0) {
 			for (int i = 0; i < articlenoPostfixs.length; i++) {
@@ -81,8 +85,8 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 					LOGGER.info("商家编码包含其他字符" + articleno + "，此单不下");
 					// "软件下单失败，商家编码包含非下单字符"+articleno
 					long flag = 5;
-					String memo = "软件下单失败，商家编码包含非下单字符" + articleno;
-					// taobaoImpl.addMemo(tid, flag, memo);
+					String memo = "软件下单失败，商家编码包含非下单字符[" + articleno + "]";
+					taobaoImpl.updateTradeMemo(tid, flag, memo);
 					return null;
 				}
 			}
@@ -106,17 +110,29 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 			break;
 		}
 		LOGGER.info("--将货源信息封装为对象--");
-		double baobenPrice = (price - postage) * percent;
+		double baobenPrice = 0;
+		if (isSecond) {
+			// 二次下单公式
+			baobenPrice = (price - replacementPostage) * replacementPercent;
+		} else {
+			// 自动下单公式
+			baobenPrice = (price - postage) * percent;
+		}
 		LOGGER.info("计算保本价为:" + baobenPrice);
-		if (tianmaHttp.getSearchByArticleno(articleno.split("-")[0] + "-" + articleno.split("-")[1]) == null) {
-			LOGGER.info("查不到此货号或超时，不下此单");
+		Map<String, String> map = null;
+		try {
+			map = tianmaHttp.getSearchByArticleno(articleno.split("-")[0] + "-" + articleno.split("-")[1]);
+		} catch (Exception e) {
+			// TODO: handle exception
+		}
+		if (map.size() == 0 || map == null) {
+			LOGGER.info("天猫标记紫旗，此订单不下单");
 			long flag = 5;
-			String memo = "查不到此货号" + articleno;
-			// taobaoImpl.addMemo(tid, flag, memo);
+			String memo = "天马没有找到对应尺码" + articleno;
+			org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+			LOGGER.info(String.valueOf(msg));
 			return null;
 		}
-		Map<String, String> map = tianmaHttp
-				.getSearchByArticleno(articleno.split("-")[0] + "-" + articleno.split("-")[1]);
 		JSONObject json = new JSONObject(map.get("json"));
 		JSONArray jsonArray = json.getJSONArray("rows");
 		String[] size_info = map.get("size_info").split(",");
@@ -131,7 +147,7 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 				jsonStr.setArticleno(warehouseInfo.getString("articleno"));
 				jsonStr.setArticleno_old(warehouseInfo.getString("articleno_old"));
 				jsonStr.setExpressName(warehouseInfo.getString("expressName"));
-				jsonStr.setFirst_w(warehouseInfo.getDouble("first_w"));
+				jsonStr.setFirst_w(String.valueOf(warehouseInfo.getDouble("first_w")));
 				jsonStr.setWeight(map.get("weight"));
 				// 取出配货率和发货时效
 				String pickRate = warehouseInfo.getString("pickRate");
@@ -179,11 +195,11 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 
 		LOGGER.info("保本价过滤后，剩余可选仓库个数:" + jsonStrList.size());
 		if (jsonStrList.size() == 0 || jsonStrList == null) {
-			// 标紫旗，备注天马未找到对应尺码
-			LOGGER.info("天马未找到对应尺码或保本价低于代理价");
+			LOGGER.info("天猫标记紫旗，此订单不下单");
 			long flag = 5;
-			String memo = "天马未找到对应尺码或保本价低于代理价" + articleno;
-			// taobaoImpl.addMemo(tid, flag, memo);
+			String memo = "没有计算出仓库信息.请人工处理[" + articleno + "]";
+			org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+			LOGGER.info(String.valueOf(msg));
 			return null;
 		}
 
@@ -197,21 +213,26 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 	 * 
 	 */
 	@Override
-	public List<JsonStr> rubbishWareHouseFilter(List<JsonStr> jsonStrList) {
+	public List<JsonStr> rubbishWareHouseFilter(List<JsonStr> jsonStrList, boolean isSecond, String lastWarehouseName) {
 		String[] wareHouseNames = rubbishWareHouse.split(",");
+		List<JsonStr> jsonStrList2 = null;
 		LOGGER.info("过滤指标：" + "指定仓库=\"" + rubbishWareHouse + "\"," + "库存=" + wareHouseNameInventory);
-		if (wareHouseNames.length != 0) {
-			for (int j = 0; j < wareHouseNames.length; j++) {
-				final int i = j;
-				if (wareHouseNames[j].isEmpty() || wareHouseNames[j] == null) {
-					continue;
-				}
-				jsonStrList = jsonStrList.stream()
-						.filter(jsonStr -> !wareHouseNames[i].equals(jsonStr.getWareHouseName())
-								|| jsonStr.getSize().getInventory() >= wareHouseNameInventory)
-						.collect(Collectors.toList());
-			}
+		if (rubbishWareHouse.length() > 0) {
+			jsonStrList = jsonStrList.stream().filter(jsonStr -> !rubbishWareHouse.contains(jsonStr.getWareHouseName())
+					|| jsonStr.getSize().getInventory() >= wareHouseNameInventory).collect(Collectors.toList());
 			LOGGER.info("过滤指定仓库后,剩余可选仓库个数为:" + jsonStrList.size());
+		}
+		if (isSecond) {
+			try {
+				jsonStrList2 = jsonStrList.stream()
+						.filter(jsonStr -> !jsonStr.getWareHouseName().contains(lastWarehouseName))
+						.collect(Collectors.toList());
+			} catch (Exception e) {
+				// TODO: handle exception
+			}
+		}
+		if (jsonStrList2 != null || jsonStrList2.size() != 0) {
+			return jsonStrList2;
 		}
 		return jsonStrList;
 	}
@@ -223,11 +244,12 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 	 */
 	@Override
 	public List<JsonStr> pickRateFilter(List<JsonStr> jsonStrList) {
-		LOGGER.info("过滤指标：" + "配货率<" + pickRate + "%" + "全删");
+
 		jsonStrList = jsonStrList.stream()
 				.filter(jsonStr -> Integer
 						.parseInt(jsonStr.getPickRate().substring(0, jsonStr.getPickRate().indexOf("%"))) > pickRate)
 				.collect(Collectors.toList());
+		LOGGER.info("过滤指标：" + "配货率<" + pickRate + "%" + "全删:" + jsonStrList.size());
 		List<JsonStr> jsonStrFiltereList = new ArrayList<JsonStr>();
 		for (int i = 0; i < inventory_pickRate.length(); i++) {
 			JSONObject inventory_pickRates = inventory_pickRate.getJSONObject(i);
@@ -235,12 +257,16 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 				JsonStr jsonStr = jsonStrList.get(j);
 				if (Integer
 						.parseInt(jsonStr.getPickRate().substring(0,
-								jsonStr.getPickRate().indexOf("%"))) > inventory_pickRates.getInt("PickRates1")
+								jsonStr.getPickRate().indexOf("%"))) >= inventory_pickRates.getInt("PickRates1")
 						&& Integer.parseInt(jsonStr.getPickRate().substring(0,
 								jsonStr.getPickRate().indexOf("%"))) < inventory_pickRates.getInt("PickRates2")
-						&& jsonStr.getSize().getInventory() > inventory_pickRates.getInt("inventorys")
-						|| Integer.parseInt(jsonStr.getPickRate().substring(0,
-								jsonStr.getPickRate().indexOf("%"))) > inventory_pickRates.getInt("PickRates2")) {
+						&& jsonStr.getSize().getInventory() >= inventory_pickRates.getInt("inventorys")) {
+					jsonStrFiltereList.add(jsonStr);
+				}
+				if (i == inventory_pickRate.length() - 1
+						&& Integer.parseInt(jsonStr.getPickRate().substring(0,
+								jsonStr.getPickRate().indexOf("%"))) >= inventory_pickRates.getInt("PickRates2")
+						&& jsonStr.getSize().getInventory() >= 1) {
 					jsonStrFiltereList.add(jsonStr);
 				}
 			}
@@ -257,48 +283,40 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 	 */
 	@Override
 	public List<JsonStr> transpondWareHouseFilter(List<JsonStr> jsonStrList) {
-		List<JsonStr> jsonStrFilterList = null;
-		List<JsonStr> jsonStrDirectList = null;
-		String[] transpondWareHouses = transpondWareHouse.split(",");
-		String[] directWareHouses = directWareHouse.split(",");
+		List<JsonStr> jsonStrFilterList = new ArrayList<JsonStr>();
+		List<JsonStr> jsonStrDirectList = new ArrayList<JsonStr>();
 		LOGGER.info("过滤条件：" + "需要转发到劲浪下单的仓库=\"" + transpondWareHouse + "\"遇到直接下单仓库=\"" + directWareHouse + "\"");
-		if (directWareHouses.length != 0) {
-			for (int i = 0; i < directWareHouses.length; i++) {
-				final int j = i;
-				if (directWareHouses[j].length() == 0 || directWareHouses[j] == null) {
-					continue;
-				}
-				jsonStrDirectList = jsonStrList.stream()
-						.filter(jsonStr -> directWareHouses[j].equals(jsonStr.getWareHouseName()))
-						.collect(Collectors.toList());
-				if (jsonStrDirectList.size() != 0 || jsonStrDirectList != null) {
-					// 符合条件仓库，直接下单
-					jsonStrDirectList.forEach(jsonStr -> jsonStr.setFlag(true));
-					LOGGER.info("遇到直接下单仓库，数量为:" + jsonStrDirectList.size());
-					return jsonStrDirectList;
+
+		if (transpondWareHouse.length() > 0) {
+			for (int j = 0; j < jsonStrList.size(); j++) {
+				JsonStr jsonStr = jsonStrList.get(j);
+				if (transpondWareHouse.contains(jsonStr.getWareHouseName())) {
+					jsonStrFilterList.add(jsonStr);
 				}
 			}
 		}
-		if (transpondWareHouses.length != 0) {
-			for (int i = 0; i < transpondWareHouses.length; i++) {
-				final int j = i;
-				if (transpondWareHouses[j].length() == 0 || transpondWareHouses[j] == null) {
-					continue;
-				}
-				jsonStrFilterList = jsonStrList.stream()
-						.filter(jsonStr -> transpondWareHouses[j].equals(jsonStr.getWareHouseName()))
-						.collect(Collectors.toList());
-				// 符合条件仓库，跳过此订单，天猫标记紫旗并备注劲浪
-				if (jsonStrFilterList.size() != 0 || jsonStrFilterList != null) {
-					// 天猫标记紫旗并备注劲浪
-					LOGGER.info("天猫标记紫旗并备注劲浪,跳过此单");
-					LOGGER.info("需要转发到劲浪下单的仓库:" + jsonStrFilterList);
-					long flag = 5;
-					String memo = "劲浪";
-					// taobaoImpl.addMemo(tid, flag, memo);
-					return null;
+		// 符合条件仓库，跳过此订单，天猫标记紫旗并备注劲浪
+		if (jsonStrFilterList.size() != 0 && jsonStrFilterList != null) {
+			// 天猫标记紫旗并备注劲浪
+			LOGGER.info("天猫标记紫旗并备注劲浪,跳过此单");
+			LOGGER.info("需要转发到劲浪下单的仓库:" + jsonStrFilterList);
+			jsonStrFilterList.forEach(jsonStr -> jsonStr.setFlag1(true));
+			return jsonStrFilterList;
+		}
+		if (directWareHouse.length() > 0) {
+			for (int j = 0; j < jsonStrList.size(); j++) {
+				JsonStr jsonStr = jsonStrList.get(j);
+				if (directWareHouse.contains(jsonStr.getWareHouseName())) {
+					jsonStrDirectList.add(jsonStr);
 				}
 			}
+
+		}
+		if (jsonStrDirectList.size() != 0 && jsonStrDirectList != null) {
+			// 符合条件仓库，直接下单
+			jsonStrDirectList.forEach(jsonStr -> jsonStr.setFlag(true));
+			LOGGER.info("遇到直接下单仓库，数量为:" + jsonStrDirectList.size());
+			return jsonStrDirectList;
 		}
 		LOGGER.info("无符合过滤条件仓库:" + jsonStrList.size());
 		return jsonStrList;
@@ -430,15 +448,14 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 					|| D.getDouble("Prices") >= p && r >= D.getInt("PickRates")
 					|| E.getDouble("Prices") >= p && r >= E.getInt("PickRates")) {
 				jsonStrFilterList.add(jsonStrList.get(i));
-				LOGGER.info("不包含基准仓库的筛选结果:" + jsonStrFilterList.size());
 			}
 		}
-		if (jsonStrFilterList.isEmpty()) {
+		LOGGER.info("不包含基准仓库的筛选结果:" + jsonStrFilterList.size());
+		if (jsonStrFilterList.size() == 0 || jsonStrFilterList == null) {
 			LOGGER.info("无符合条件仓库，使用基准仓库");
 			jsonStrFilterList.add(standardJsonStr);
 			return jsonStrFilterList;
 		}
-		LOGGER.info("符合条件仓库数" + jsonStrFilterList.size());
 		return jsonStrFilterList;
 	}
 
@@ -454,11 +471,8 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 		if (orderSelect) {
 			// true比对价格
 			for (int i = 0; i < jsonStrList.size(); i++) {
-				for (int j = jsonStrList.size() - 1; j > i; j--) {
-					if (jsonStrList.get(i).getProxyPrice() > jsonStrList.get(j).getProxyPrice()
-							&& jsonStrFilter.getProxyPrice() > jsonStrList.get(j).getProxyPrice()) {
-						jsonStrFilter = jsonStrList.get(j);
-					}
+				if (jsonStrList.get(i).getProxyPrice() < jsonStrFilter.getProxyPrice()) {
+					jsonStrFilter = jsonStrList.get(i);
 				}
 			}
 			jsonStrFilterList.add(jsonStrFilter);
@@ -466,18 +480,12 @@ public class SearchByArticlenoImpl implements SearchByArticleno {
 		} else {
 			// false比对配货率
 			for (int i = 0; i < jsonStrList.size(); i++) {
-				for (int j = jsonStrList.size() - 1; j > i; j--) {
-					if (Integer.parseInt(jsonStrList.get(i).getPickRate().substring(0,
-							jsonStrList.get(i).getPickRate().indexOf("%"))) > Integer
-									.parseInt(jsonStrList.get(j).getPickRate().substring(0,
-											jsonStrList.get(j).getPickRate().indexOf("%")))
-							&& Integer.parseInt(jsonStrFilter.getPickRate().substring(0,
-									jsonStrFilter.getPickRate().indexOf("%"))) > Integer
-											.parseInt(jsonStrList.get(j).getPickRate().substring(0,
-													jsonStrList.get(j).getPickRate().indexOf("%")))) {
-						jsonStrFilter = jsonStrList.get(j);
-					}
+				if (Double.parseDouble(jsonStrList.get(i).getPickRate().substring(0,
+						jsonStrList.get(i).getPickRate().indexOf("%"))) > Double.parseDouble(
+								jsonStrFilter.getPickRate().substring(0, jsonStrFilter.getPickRate().indexOf("%")))) {
+					jsonStrFilter = jsonStrList.get(i);
 				}
+
 			}
 			jsonStrFilterList.add(jsonStrFilter);
 			return jsonStrFilterList;

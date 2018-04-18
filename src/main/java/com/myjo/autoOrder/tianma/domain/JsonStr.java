@@ -16,9 +16,10 @@ public class JsonStr {
 	private String timeEfficacy;// 发货时效
 	private String updateTime;// 更新时间
 	private String weight;// 重量
-	private double first_w;// 不知道什么鬼
+	private String first_w;// 不知道什么鬼
 	private Size size;// 尺码
 	private boolean flag = false;
+	private boolean flag1 = false;
 
 	public int getWareHouseID() {
 		return wareHouseID;
@@ -132,12 +133,20 @@ public class JsonStr {
 		this.weight = weight;
 	}
 
-	public double getFirst_w() {
+	public String getFirst_w() {
 		return first_w;
 	}
 
-	public void setFirst_w(double first_w) {
+	public void setFirst_w(String first_w) {
 		this.first_w = first_w;
+	}
+
+	public boolean isFlag1() {
+		return flag1;
+	}
+
+	public void setFlag1(boolean flag1) {
+		this.flag1 = flag1;
 	}
 
 	@Override
@@ -146,7 +155,7 @@ public class JsonStr {
 				+ ", articleno=" + articleno + ", articleno_old=" + articleno_old + ", proxyPrice=" + proxyPrice
 				+ ", pick_date=" + pick_date + ", expressName=" + expressName + ", pickRate=" + pickRate
 				+ ", timeEfficacy=" + timeEfficacy + ", updateTime=" + updateTime + ", weight=" + weight + ", first_w="
-				+ first_w + ", size=" + size + ", flag=" + flag + "]";
+				+ first_w + ", size=" + size + ", flag=" + flag + ", flag1=" + flag1 + "]";
 	}
 
 }

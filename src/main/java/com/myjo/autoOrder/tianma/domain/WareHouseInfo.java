@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class WareHouseInfo {
 
-	private int id;
 	private long order_id;// 订单编号
 	private String buyer_nick;// 买家昵称
 	private double payment;// 实际支付金额
@@ -19,23 +18,7 @@ public class WareHouseInfo {
 	private String timeEfficacy;// 发货时效
 	private String updateTime;// 库存更新时间
 	private String pay_time;// 付款时间
-	private String fix_up;// 是否下单
-
-	public int getId() {
-		return id;
-	}
-
-	public void setId(int id) {
-		this.id = id;
-	}
-
-	public String getFix_up() {
-		return fix_up;
-	}
-
-	public void setFix_up(String fix_up) {
-		this.fix_up = fix_up;
-	}
+	private String orderType;// 下单方式
 
 	public String getBuyer_nick() {
 		return buyer_nick;
@@ -141,13 +124,12 @@ public class WareHouseInfo {
 		this.pay_time = pay_time;
 	}
 
-	@Override
-	public String toString() {
-		return "WareHouseInfo [id=" + id + ", order_id=" + order_id + ", buyer_nick=" + buyer_nick + ", payment="
-				+ payment + ", tm_order_id=" + tm_order_id + ", outer_sku_id=" + outer_sku_id + ", chineseSize="
-				+ chineseSize + ", wareHouseName=" + wareHouseName + ", proxyPrice=" + proxyPrice + ", inventory="
-				+ inventory + ", pickRate=" + pickRate + ", timeEfficacy=" + timeEfficacy + ", updateTime=" + updateTime
-				+ ", pay_time=" + pay_time + ", fix_up=" + fix_up + "]";
+	public String getOrderType() {
+		return orderType;
+	}
+
+	public void setOrderType(String orderType) {
+		this.orderType = orderType;
 	}
 
 }

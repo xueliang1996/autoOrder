@@ -11,10 +11,10 @@ import com.myjo.autoOrder.tianma.domain.JsonStr;
  */
 public interface SearchByArticleno {
 	// 保本价过滤
-	public List<JsonStr> priceFilter(long tid, String articleno, double price);
+	public List<JsonStr> priceFilter(long tid, String articleno, double price, boolean isSecond);
 
 	// 指定仓库过滤
-	public List<JsonStr> rubbishWareHouseFilter(List<JsonStr> jsonStrList);
+	public List<JsonStr> rubbishWareHouseFilter(List<JsonStr> jsonStrList, boolean isSecond, String lastWarehouseName);
 
 	// 配货率及库存过滤
 	public List<JsonStr> pickRateFilter(List<JsonStr> jsonStrList);

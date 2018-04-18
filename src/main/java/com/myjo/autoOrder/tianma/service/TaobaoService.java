@@ -11,7 +11,7 @@ public interface TaobaoService {
 	public JSONObject addMemo(long tid, long flag, String memo);
 
 	// 修改淘宝备注
-	public void updateTradeMemo(long tid, long flag, String memo);
+	public JSONObject updateTradeMemo(long tid, long flag, String memo);
 
 	// taobao.trade.get (获取单笔交易的部分信息(性能高))
 	public Optional<Trade> getTaobaoTrade(long tid);

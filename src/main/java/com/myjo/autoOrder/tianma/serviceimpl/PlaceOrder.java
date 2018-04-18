@@ -1,4 +1,4 @@
-package com.myjo.autoOrder.tianma.app;
+package com.myjo.autoOrder.tianma.serviceimpl;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,13 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import com.alibaba.fastjson.JSONObject;
 import com.myjo.autoOrder.tianma.domain.JsonStr;
 import com.myjo.autoOrder.tianma.domain.TmArea;
-import com.myjo.autoOrder.tianma.serviceimpl.SearchByArticlenoImpl;
-import com.myjo.autoOrder.tianma.serviceimpl.TaobaoImpl;
-import com.myjo.autoOrder.tianma.serviceimpl.TianmaHttp;
-import com.myjo.autoOrder.tianma.serviceimpl.TransformDayImpl;
 import com.taobao.api.domain.Order;
 import com.taobao.api.domain.Trade;
 
@@ -28,12 +23,12 @@ public class PlaceOrder {
 
 	@Autowired
 	private SearchByArticlenoImpl searchByArticlenoHandler;
-	@Value("${isBuyerMessage}")
-	private boolean isBuyerMessage;
 	@Value("${is_weekCheck}")
 	private boolean is_weekCheck;
 	@Value("${isTime}")
 	private boolean isTime;
+	@Value("${tmAreaTransform}")
+	private org.json.JSONArray tmAreaTransform;
 	@Autowired
 	private TransformDayImpl transformDayImpl;
 	@Autowired
@@ -43,53 +38,27 @@ public class PlaceOrder {
 	private static final Logger LOGGER = LoggerFactory.getLogger(SearchByArticlenoImpl.class);
 
 	// 筛选出仓库和订单加入Map中
-	public Map<String, Object> addMapInInfo(long tid) {
-		Optional<Trade> tradeOptional = taobaoImpl.getTaobaoTrade(tid);
+	public Map<String, Object> addMapInInfo(long tid, Trade trade, Order order, boolean isSecond,
+			String lastWarehouseName) {
+
 		Map<String, Object> JsonStrAndTrade = new HashMap<String, Object>();
-		Trade trade = new Trade();
-		if (tradeOptional.isPresent()) {
-			trade = tradeOptional.get();
-		} else {
-			LOGGER.info("订单不存在");
-			return null;
-		}
-
-		if (trade.getSellerMemo() != null) {
-			LOGGER.info("淘宝订单" + tid + ",存在卖家备注" + trade.getSellerMemo() + ",不能自动下单");
-			return null;
-		}
-		if (isBuyerMessage && trade.getBuyerMessage() != null) {
-			LOGGER.info("淘宝订单" + tid + ",存在买家留言" + trade.getBuyerMessage() + ",不能自动下单");
-			return null;
-		}
-
-		if (trade.getIsDaixiao()) {
-			LOGGER.info("淘宝订单" + tid + "是代销订单,不能自动下单");
-			return null;
-		}
-
-		if (trade.getNum() != 1) {
-			LOGGER.info("淘宝订单" + tid + ".数量大于[1]不能进行下单.");
-			return null;
-		}
-
-		Long refundId = trade.getOrders().get(0).getRefundId();
+		double payment = Double.parseDouble(order.getPayment());// 实付金额
+		String pay_time = String.valueOf(trade.getPayTime());// 付款时间
+		String outer_sku_id = order.getOuterSkuId();// 商家编码
+		Long refundId = order.getRefundId();
 		if (refundId != null) {
 			LOGGER.info("淘宝订单" + tid + ".已经存在退款单" + refundId + "不能进行下单.");
 			return null;
 		}
-		if (trade.getStatus().contains("TRADE_CLOSED") || trade.getStatus().contains("TRADE_CLOSED_BY_TAOBAO")) {
-			LOGGER.info("淘宝订单" + tid + ".已关闭,不能进行下单");
+		if (order.getNum() != 1) {
+			LOGGER.info("淘宝订单" + outer_sku_id + ".数量大于[1]不能进行下单.");
+			long flag = 5;
+			String memo = "淘宝订单" + outer_sku_id + ".数量大于[1].";
+			org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+			LOGGER.info(String.valueOf(msg));
 			return null;
 		}
-		if (trade.getStatus().contains("TRADE_FINISHED")) {
-			LOGGER.info("淘宝订单" + tid + ".已交易成功,不能进行下单");
-			return null;
-		}
-		Order order = trade.getOrders().get(0);
-		double payment = Double.parseDouble(trade.getPayment());// 实付金额
-		String pay_time = String.valueOf(trade.getPayTime());// 付款时间
-		String outer_sku_id = order.getOuterSkuId();// 商家编码
+
 		if (isTime) {
 			boolean flags = transformDayImpl.getMillisecond(pay_time, System.currentTimeMillis());
 			if (!flags) {
@@ -101,18 +70,24 @@ public class PlaceOrder {
 		// 保本价过滤 baobenPrice
 
 		try {
-			jsonStrList = searchByArticlenoHandler.priceFilter(tid, outer_sku_id, payment);
+			jsonStrList = searchByArticlenoHandler.priceFilter(tid, outer_sku_id, payment, isSecond);
 		} catch (Exception e) {
 		}
 		if (jsonStrList != null || jsonStrList.size() != 0) {
 			// 指定仓库过滤 wareHouseNames
 
 			try {
-				jsonStrList = searchByArticlenoHandler.rubbishWareHouseFilter(jsonStrList);
+				jsonStrList = searchByArticlenoHandler.rubbishWareHouseFilter(jsonStrList, isSecond, lastWarehouseName);
 			} catch (Exception e) {
 				// TODO: handle exception
 			}
 			if (jsonStrList == null || jsonStrList.size() == 0) {
+				// 包含指定的过滤仓库，不下此单
+				LOGGER.info("天猫标记紫旗，此订单不下单");
+				long flag = 5;
+				String memo = "没有计算出仓库信息.请人工处理[" + outer_sku_id + "]";
+				org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+				LOGGER.info(String.valueOf(msg));
 				return null;
 			}
 			// 配货率及库存过滤
@@ -123,12 +98,11 @@ public class PlaceOrder {
 				// TODO: handle exception
 			}
 			if (jsonStrList == null || jsonStrList.size() == 0) {
-				LOGGER.info("天猫标记红旗，备注QH-软件。此订单不下单");
-				long flag = 1;
-				String memo = "QH-软件";
-				// org.json.JSONObject msg = taobaoImpl.addMemo(tid, flag,
-				// memo);
-				// LOGGER.info(String.valueOf(msg));
+				LOGGER.info("天猫标记紫旗，此订单不下单");
+				long flag = 5;
+				String memo = "没有计算出仓库信息.请人工处理[" + outer_sku_id + "]";
+				org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+				LOGGER.info(String.valueOf(msg));
 				return null;
 			}
 			// 过滤转发到劲浪下单的仓库及遇到直接下单的仓库
@@ -139,30 +113,18 @@ public class PlaceOrder {
 				// TODO: handle exception
 			}
 			if (jsonStrList == null || jsonStrList.size() == 0) {
-				LOGGER.info("跳过此过滤条件,重新执行");
-				try {
-					jsonStrList = searchByArticlenoHandler.priceFilter(tid, outer_sku_id, payment);
-					jsonStrList = searchByArticlenoHandler.rubbishWareHouseFilter(jsonStrList);
-					jsonStrList = searchByArticlenoHandler.pickRateFilter(jsonStrList);
-				} catch (Exception e) {
-					// TODO: handle exception
-				}
 
-				// 重新执行后还是为空
-				if (jsonStrList == null || jsonStrList.size() == 0) {
-					LOGGER.info("天猫标记红旗，备注QH-软件。此订单不下单");
-					long flag = 1;
-					String memo = "QH-软件";
-					// org.json.JSONObject msg = taobaoImpl.addMemo(tid, flag,
-					// memo);
-					// LOGGER.info(String.valueOf(msg));
-					return null;
-				}
-			} else if (jsonStrList.get(0).isFlag() == true) {
+				LOGGER.info("天猫标记紫旗，此订单不下单");
+				long flag = 5;
+				String memo = "没有计算出仓库信息.请人工处理[" + outer_sku_id + "]";
+				org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+				LOGGER.info(String.valueOf(msg));
+				return null;
+
+			} else if (jsonStrList.get(0).isFlag()) {
 				if (jsonStrList.size() == 1) {
 					// 只有一个遇到直接下单仓库
 					LOGGER.info("=======下单=======");
-					System.out.println(jsonStrList);
 					JsonStrAndTrade.put("JsonStr", jsonStrList.get(0));
 					Optional<Trade> tradeOptionals = taobaoImpl.getTaobaoTradeFullInfo(tid);
 					JsonStrAndTrade.put("Trade", tradeOptionals.get());
@@ -172,12 +134,16 @@ public class PlaceOrder {
 					LOGGER.info("=======下单=======");
 					List<JsonStr> jsonStrFliterList = new ArrayList<JsonStr>();
 					jsonStrFliterList.add(jsonStrList.get(0));
-					System.out.println(jsonStrList);
 					JsonStrAndTrade.put("JsonStr", jsonStrFliterList.get(0));
 					Optional<Trade> tradeOptionals = taobaoImpl.getTaobaoTradeFullInfo(tid);
 					JsonStrAndTrade.put("Trade", tradeOptionals.get());
 					return JsonStrAndTrade;
 				}
+			} else if (jsonStrList.get(0).isFlag1()) {
+				long flag = 5;
+				String memo = "需转发劲浪下单:" + jsonStrList.get(0).getWareHouseName();
+				taobaoImpl.updateTradeMemo(tid, flag, memo);
+				return null;
 			}
 			// 如果下单时间为周五4:00-周六4:00，则过滤周六周日不发货仓库，
 			// 如果下单时间为周六4:00-周日4:00，则过滤周日不发货仓库
@@ -189,19 +155,17 @@ public class PlaceOrder {
 					// TODO: handle exception
 				}
 			}
-			if (jsonStrList == null || jsonStrList.size() == 0) {
-				LOGGER.info("天猫标记红旗，备注QH-软件。此订单不下单");
-				long flag = 1;
-				String memo = "QH-软件";
-				// org.json.JSONObject msg = taobaoImpl.addMemo(tid, flag,
-				// memo);
-				// LOGGER.info(String.valueOf(msg));
+			if (jsonStrList.size() == 0 || jsonStrList == null) {
+				LOGGER.info("天猫标记紫旗，此订单不下单");
+				long flag = 5;
+				String memo = "没有计算出仓库信息.请人工处理[" + outer_sku_id + "]";
+				org.json.JSONObject msg = taobaoImpl.updateTradeMemo(tid, flag, memo);
+				LOGGER.info(String.valueOf(msg));
 				return null;
 			}
 			if (jsonStrList.size() == 1) {
 				// 符合的仓库只有一个
 				LOGGER.info("=======下单=======");
-				System.out.println(jsonStrList);
 				JsonStrAndTrade.put("JsonStr", jsonStrList.get(0));
 				Optional<Trade> tradeOptionals = taobaoImpl.getTaobaoTradeFullInfo(tid);
 				JsonStrAndTrade.put("Trade", tradeOptionals.get());
@@ -217,7 +181,6 @@ public class PlaceOrder {
 				if (jsonStrList.size() == 1) {
 					// 基准仓库或符合条件仓库只有一个
 					LOGGER.info("=======下单=======");
-					System.out.println(jsonStrList);
 					JsonStrAndTrade.put("JsonStr", jsonStrList.get(0));
 					Optional<Trade> tradeOptionals = taobaoImpl.getTaobaoTradeFullInfo(tid);
 					JsonStrAndTrade.put("Trade", tradeOptionals.get());
@@ -226,7 +189,6 @@ public class PlaceOrder {
 					// 与基准仓库对比后，还剩余2个或两个以上的
 					jsonStrList = searchByArticlenoHandler.finalFilter(jsonStrList);
 					LOGGER.info("=======下单=======");
-					System.out.println(jsonStrList);
 					JsonStrAndTrade.put("JsonStr", jsonStrList.get(0));
 					Optional<Trade> tradeOptionals = taobaoImpl.getTaobaoTradeFullInfo(tid);
 					JsonStrAndTrade.put("Trade", tradeOptionals.get());
@@ -252,7 +214,7 @@ public class PlaceOrder {
 	 * ']';
 	 *
 	 */
-	public Map<String, Object> assembly(Map<String, Object> JsonStrAndTrade) {
+	public Map<String, Object> assembly(Map<String, Object> JsonStrAndTrade, String remark) {
 		JsonStr jsonStrs = (JsonStr) JsonStrAndTrade.get("JsonStr");
 		Map<String, Object> assemblyMap = new HashMap<String, Object>();
 		List<TmArea> tmArea0 = tianmaHttp.getArea("0");
@@ -266,7 +228,6 @@ public class PlaceOrder {
 		String recv_mobile = trade.getReceiverMobile();
 		String recv_tel = trade.getReceiverPhone();
 		String recv_address = trade.getReceiverAddress();
-		String remark = "软件下单";
 		String province = trade.getReceiverState();
 		String city = trade.getReceiverCity();
 		String area = trade.getReceiverDistrict();
@@ -276,30 +237,39 @@ public class PlaceOrder {
 		city_id = tmArea1.stream().filter(tmArea -> tmArea.getName().equals(city)).collect(Collectors.toList()).get(0)
 				.getId();
 		List<TmArea> tmArea2 = tianmaHttp.getArea(String.valueOf(city_id));
-		List<TmArea> areaList = tmArea2.stream().filter(tmArea -> tmArea.getName().equals(area))
-				.collect(Collectors.toList());
-		if (areaList == null) {
+		outside: for (int i = 0; i < tmAreaTransform.length(); i++) {
+			for (int j = 0; j < tmArea2.size(); j++) {
+				if (tmAreaTransform.getJSONObject(i).getString("Before").equals(tmArea2.get(j).getName())) {
+					tmArea2.get(j).setName(tmAreaTransform.getJSONObject(i).getString("Later"));
+				}
+			}
+		}
+		tmArea2 = tmArea2.stream().filter(tmArea -> tmArea.getName().equals(area)).collect(Collectors.toList());
+		if (tmArea2 == null || tmArea2.size() == 0) {
 			// 没有区，不下此单
-			LOGGER.info("查不到第三级区县，不下此单");
+			LOGGER.info("查不到此地址[" + area + "]");
 			long flag = 5;
-			String memo = "查不到第三级区县";
-			// org.json.JSONObject msg = taobaoImpl.addMemo(tid, flag,
-			// memo);
-			// LOGGER.info(String.valueOf(msg));
+			String memo = "查不到此地址[" + area + "],请人工处理[" + jsonStrs.getArticleno() + "-" + jsonStrs.getSize().getSize2()
+					+ "]";
+			org.json.JSONObject msg = taobaoImpl.updateTradeMemo(trade.getTid(), flag, memo);
+			LOGGER.info(String.valueOf(msg));
 			return null;
 		}
-		area_id = areaList.get(0).getId();
-		zipcode = areaList.get(0).getZipcode();
-		JSONObject postage = tianmaHttp.getPostage(jsonStrs.getWareHouseName(), province, jsonStrs.getWeight(),
+		area_id = tmArea2.get(0).getId();
+		zipcode = tmArea2.get(0).getZipcode();
+		if (zipcode == null || "".equals(zipcode)) {
+			zipcode = tmArea1.stream().filter(tmArea -> tmArea.getName().equals(city)).collect(Collectors.toList())
+					.get(0).getZipcode();
+		}
+		String expresses = tianmaHttp.getPostage(jsonStrs.getWareHouseName(), province, jsonStrs.getWeight(),
 				jsonStrs.getFirst_w());
-		express = postage.getString("expressName");
 		StringBuilder jsonStr = new StringBuilder();
 		jsonStr.append("[");
 		jsonStr.append("{");
 		jsonStr.append("\"wareHouseName\": \"" + jsonStrs.getWareHouseName() + "\",");
 		jsonStr.append("\"size\": \"" + jsonStrs.getSize().getSize2() + "\",");
 		jsonStr.append("\"articleno\": \"" + jsonStrs.getArticleno() + "\",");
-		jsonStr.append("\"express\": \"" + express + "\",");
+		jsonStr.append("\"express\": \"" + expresses + "\",");
 		jsonStr.append("\"orderCount\": \"1\",");
 		jsonStr.append("\"productID\": \"" + jsonStrs.getProductId() + "\",");
 		jsonStr.append("\"ercipei\": \"1\",");
@@ -324,6 +294,20 @@ public class PlaceOrder {
 		assemblyMap.put("province_id", province_id);
 		assemblyMap.put("city_id", city_id);
 		assemblyMap.put("area_id", area_id);
+		LOGGER.info(String.valueOf(assemblyMap.get("jsonStr")));
+		LOGGER.info(String.valueOf(assemblyMap.get("recv_name")));
+		LOGGER.info(String.valueOf(assemblyMap.get("recv_mobile")));
+		LOGGER.info(String.valueOf(assemblyMap.get("recv_tel")));
+		LOGGER.info(String.valueOf(assemblyMap.get("zipcode")));
+		LOGGER.info(String.valueOf(assemblyMap.get("recv_address")));
+		LOGGER.info(String.valueOf(assemblyMap.get("remark")));
+		LOGGER.info(String.valueOf(assemblyMap.get("province")));
+		LOGGER.info(String.valueOf(assemblyMap.get("city")));
+		LOGGER.info(String.valueOf(assemblyMap.get("area")));
+		LOGGER.info(String.valueOf(assemblyMap.get("outer_tid")));
+		LOGGER.info(String.valueOf(assemblyMap.get("province_id")));
+		LOGGER.info(String.valueOf(assemblyMap.get("city_id")));
+		LOGGER.info(String.valueOf(assemblyMap.get("area_id")));
 		return assemblyMap;
 	}
 }

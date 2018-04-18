@@ -10,6 +10,14 @@ public interface TransformDay {
 	// 字符串时间格式转换为毫秒值,进行减法判断
 	public boolean getMillisecond(String time1, long time2);
 
+	public boolean getMillisecond(String time1);
+
 	// 获取当前日期
 	public String getCurrentTime();
+
+	// 获取当前时间的前一天
+	public String getBeforeCurrentDay();
+
+	// 获取当前时间的前一个月
+	public String getBeforeCurrentMonth();
 }
