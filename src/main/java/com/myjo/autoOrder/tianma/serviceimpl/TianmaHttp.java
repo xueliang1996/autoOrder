@@ -252,7 +252,7 @@ public class TianmaHttp {
 
 			int code = response.getStatus();
 			if (code == 200) {
-				JSONObject object = new JSONObject(response);
+				JSONObject object = new JSONObject(response.getBody());
 				org.json.JSONArray jsonA = object.getJSONArray("rows");
 				for (int i = 0; i < jsonA.length(); i++) {
 					if (outer_id.equals(jsonA.getJSONObject(i).getString("outer_order_id"))) {
